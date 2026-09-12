@@ -14,8 +14,7 @@ struct ComicOptimizerApp: App {
 
 struct ReviewRequest: Identifiable {
     let id = UUID()
-    let image: CGImage
-    let label: String
+    let context: ReviewContext
     let manga: Bool
     let reply: (PageDecision) -> Void
 }
@@ -67,9 +66,9 @@ enum Modal: Identifiable {
                     let output = try await Pipeline.run(
                         input: url, manga: manga, useImageOptim: optim,
                         log: { line in Task { @MainActor in self?.log.append("    " + line) } },
-                        review: { image, label in
+                        review: { context in
                             guard let self else { return .keep }
-                            return await self.review(image, label)
+                            return await self.review(context)
                         })
                     await self?.finished(url, output)
                 } catch {
@@ -81,9 +80,9 @@ enum Modal: Identifiable {
     }
 
     /// Suspends the pipeline until the editor reports back what to do with the page.
-    func review(_ image: CGImage, _ label: String) async -> PageDecision {
+    func review(_ context: ReviewContext) async -> PageDecision {
         await withCheckedContinuation { continuation in
-            modal = .review(ReviewRequest(image: image, label: label, manga: manga) { [weak self] decision in
+            modal = .review(ReviewRequest(context: context, manga: manga) { [weak self] decision in
                 self?.modal = nil
                 continuation.resume(returning: decision)
             })
@@ -155,7 +154,8 @@ struct ContentView: View {
             case .direction:
                 DirectionSheet(model: model)
             case .review(let request):
-                PageEditor(image: request.image, label: request.label,
+                PageEditor(pages: request.context.pages, index: request.context.index,
+                           suggestedCuts: request.context.suggestedCuts,
                            manga: request.manga, onDecision: request.reply)
                     .interactiveDismissDisabled()
             }

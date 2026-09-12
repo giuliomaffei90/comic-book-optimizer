@@ -8,11 +8,15 @@ Trascini un `.cbr`, `.cbz`, `.zip`, `.rar`, `.7z` o una cartella di immagini; l'
 2. classifica ogni pagina rispetto alla mediana del volume stesso:
    - **pagina normale** (~1×): passa;
    - **tavola doppia** (~2×): se le due metà sono già presenti come pagine singole adiacenti
-     (confronto con difference hash) scarta la doppia, altrimenti la divide nell'ordine giusto
-     per il senso di lettura scelto (manga = destra → sinistra);
+     (confronto con difference hash) la scarta da sola, altrimenti te la mostra con la linea
+     di taglio già piazzata a metà;
    - **fuori formato** (tutto il resto: foldout a tre o più ante, scansioni storte, banner):
-     il processo si ferma e ti mostra l'immagine. Puoi tenerla, eliminarla, oppure ritagliarla e
-     tagliarla lungo quante linee verticali servono;
+     te la mostra senza tagli preimpostati.
+
+   In entrambi i casi il processo si ferma sull'editor: puoi tenere la pagina, eliminarla,
+   ritagliarla, spostare o aggiungere linee di taglio verticali, sfogliare le pagine vicine
+   con le frecce e zoomare fino a 8× per lavorare al pixel. Con la lettura manga i pezzi
+   vengono riordinati destra → sinistra;
 3. riduce le pagine che superano 2048×2732 (risoluzione nativa dell'iPad Pro 12.9");
 4. ricodifica in JPEG qualità 81% e, se vuoi, fa un passaggio con **ImageOptim** (usa le sue preferenze);
 5. riscrive tutto in un `.cbz` accanto all'originale e chiede se conservare i file di partenza.

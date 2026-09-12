@@ -15,7 +15,15 @@ enum ImageOptim {
     }
 }
 
-/// What to do with a page the pipeline could not classify on its own.
+/// Everything the editor needs: the whole book to page through, which page is under
+/// review, and the cuts the pipeline would have made by itself.
+struct ReviewContext {
+    let pages: [CGImage]
+    let index: Int
+    let suggestedCuts: [CGFloat]
+}
+
+/// What to do with a page the pipeline won't ship untouched.
 enum PageDecision {
     case keep
     case drop
@@ -44,7 +52,7 @@ enum Pipeline {
                     manga: Bool,
                     useImageOptim: Bool,
                     log: (String) -> Void,
-                    review: (CGImage, String) async -> PageDecision) async throws -> URL {
+                    review: (ReviewContext) async -> PageDecision) async throws -> URL {
         var entries = try load(input)
         entries.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         guard !entries.isEmpty else { throw ArchiveError.noImages }
@@ -69,14 +77,13 @@ enum Pipeline {
         }
 
         // Some rips ship the spread *and* its two halves — then the spread is redundant.
-        var split = 0, dropped = 0
+        var dropped = 0
         for i in pages.indices where pages[i].kind == .double {
-            if alreadySplit(pages, i) { pages[i].drop = true; dropped += 1 } else { split += 1 }
+            if alreadySplit(pages, i) { pages[i].drop = true; dropped += 1 }
         }
-        if split > 0 { log("\(split) tavole doppie da dividere") }
         if dropped > 0 { log("\(dropped) tavole doppie ridondanti rimosse") }
-        let odd = pages.filter { $0.kind == .odd }.count
-        if odd > 0 { log("\(odd) immagini fuori formato: attendo la tua scelta") }
+        let toReview = pages.filter { !$0.drop && $0.kind != .normal }.count
+        if toReview > 0 { log("\(toReview) pagine da rivedere: attendo la tua scelta") }
 
         var out: [Entry] = []
         func emit(_ image: CGImage) {
@@ -84,24 +91,19 @@ enum Pipeline {
             out.append(Entry(name: name(out.count + 1, "jpg"), data: data))
         }
 
+        let book = pages.map(\.image)
         for (i, page) in pages.enumerated() where !page.drop {
-            switch page.kind {
-            case .double:
-                [half(page.image, left: !manga), half(page.image, left: manga)]
-                    .compactMap { $0 }.forEach(emit)
-
-            case .odd:
-                switch await review(page.image, "Immagine \(i + 1) di \(pages.count)") {
-                case .drop:
-                    continue
-                case .keep:
-                    passThrough(page, into: &out)
-                case .replace(let pieces):
-                    (manga ? pieces.reversed() : pieces).forEach(emit)
-                }
-
-            case .normal:
+            guard page.kind != .normal else { passThrough(page, into: &out); continue }
+            // A spread arrives with the cut already down the middle; a foldout starts bare.
+            let context = ReviewContext(pages: book, index: i,
+                                        suggestedCuts: page.kind == .double ? [0.5] : [])
+            switch await review(context) {
+            case .drop:
+                continue
+            case .keep:
                 passThrough(page, into: &out)
+            case .replace(let pieces):
+                (manga ? pieces.reversed() : pieces).forEach(emit)
             }
         }
         log("\(out.count) pagine finali")

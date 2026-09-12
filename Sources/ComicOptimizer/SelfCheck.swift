@@ -33,17 +33,19 @@ enum SelfCheck {
         let input = dir.appendingPathComponent("book.cbz")
         try writeCBZ(entries, to: input)
 
-        // The foldout is the only page handed to the reviewer; slice it into thirds.
-        var reviewed = 0
-        let output = try await Pipeline.run(input: input, manga: true, useImageOptim: false, log: { _ in }) { image, _ in
-            reviewed += 1
-            let third = image.width / 3
-            let parts = (0..<3).compactMap {
-                image.cropping(to: CGRect(x: $0 * third, y: 0, width: third, height: image.height))
-            }
-            return .replace(parts)
+        // The spread and the foldout reach the reviewer; the plain pages must not.
+        var reviewed: [Int] = []
+        let output = try await Pipeline.run(input: input, manga: true, useImageOptim: false, log: { _ in }) { ctx in
+            reviewed.append(ctx.index)
+            let image = ctx.pages[ctx.index]
+            // Honour the suggested cut when there is one, otherwise slice the foldout in thirds.
+            let fractions = ctx.suggestedCuts.isEmpty ? [1.0 / 3, 2.0 / 3] : ctx.suggestedCuts
+            let xs = ([0] + fractions + [1]).map { Int($0 * CGFloat(image.width)) }
+            return .replace((0..<(xs.count - 1)).compactMap {
+                image.cropping(to: CGRect(x: xs[$0], y: 0, width: xs[$0 + 1] - xs[$0], height: image.height))
+            })
         }
-        try expect(reviewed == 1, "il reviewer doveva essere chiamato una volta, non \(reviewed)")
+        try expect(reviewed == [5, 6], "il reviewer doveva vedere le pagine 5 e 6, ha visto \(reviewed)")
 
         let result = try readArchive(output).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         try expect(result.map(\.name) == ["001.png", "002.png", "003.png", "004.png",
