@@ -74,10 +74,10 @@ struct PageCarousel: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 6) {
                     ForEach(pages.indices, id: \.self) { i in
+                        // Real aspect ratio, so spreads and oddities stand out in the strip.
                         Image(decorative: pages[i], scale: 1)
-                            .resizable().scaledToFill()
-                            .frame(width: 52, height: 72)
-                            .clipped()
+                            .resizable()
+                            .frame(width: thumbWidth(pages[i]), height: 72)
                             .opacity(removed.contains(i) ? 0.3 : 1)
                             .overlay(RoundedRectangle(cornerRadius: 3)
                                 .stroke(border(i), lineWidth: i == current ? 3 : 1))
@@ -90,6 +90,11 @@ struct PageCarousel: View {
             .frame(height: 84)
             .onChange(of: current) { proxy.scrollTo($0, anchor: .center) }
         }
+    }
+
+    private func thumbWidth(_ image: CGImage) -> CGFloat {
+        let w = 72 * CGFloat(image.width) / CGFloat(image.height)
+        return min(max(w, 24), 240)
     }
 
     private func border(_ i: Int) -> Color {
