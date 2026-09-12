@@ -52,6 +52,7 @@ enum Pipeline {
                     manga: Bool,
                     useImageOptim: Bool,
                     log: (String) -> Void,
+                    preflight: ([CGImage]) async -> Set<Int>?,
                     review: (ReviewContext) async -> PageDecision) async throws -> URL {
         var entries = try load(input)
         entries.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -65,10 +66,19 @@ enum Pipeline {
         }
         guard !pages.isEmpty else { throw ArchiveError.noImages }
 
+        // Let the reader bin the junk pages before anything is measured or cut.
+        guard let discarded = await preflight(pages.map(\.image)) else { throw ArchiveError.cancelled }
+        if !discarded.isEmpty {
+            pages.remove(atOffsets: IndexSet(discarded))
+            log("\(discarded.count) pagine eliminate a mano")
+            guard !pages.isEmpty else { throw ArchiveError.noImages }
+        }
+
         // Classify against the book's own norm: ~1× is a page, ~2× is a spread,
         // anything else (foldouts, crooked scans, banners) needs a human.
         let ratios = pages.map { CGFloat($0.image.width) / CGFloat($0.image.height) }.sorted()
-        let median = ratios[ratios.count / 2]
+        let mid = ratios.count / 2
+        let median = ratios.count % 2 == 1 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2
         for i in pages.indices {
             let k = CGFloat(pages[i].image.width) / CGFloat(pages[i].image.height) / median
             pages[i].kind = abs(k - 1) <= normalTolerance ? .normal

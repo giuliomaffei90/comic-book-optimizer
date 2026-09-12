@@ -19,14 +19,23 @@ struct ReviewRequest: Identifiable {
     let reply: (PageDecision) -> Void
 }
 
-/// One sheet at a time — the direction prompt and the page review never overlap.
+struct CarouselRequest: Identifiable {
+    let id = UUID()
+    let pages: [CGImage]
+    let title: String
+    let reply: (Set<Int>?) -> Void
+}
+
+/// One sheet at a time — the prompts never overlap.
 enum Modal: Identifiable {
     case direction
+    case carousel(CarouselRequest)
     case review(ReviewRequest)
 
     var id: String {
         switch self {
         case .direction: return "direction"
+        case .carousel(let request): return request.id.uuidString
         case .review(let request): return request.id.uuidString
         }
     }
@@ -66,6 +75,10 @@ enum Modal: Identifiable {
                     let output = try await Pipeline.run(
                         input: url, manga: manga, useImageOptim: optim,
                         log: { line in Task { @MainActor in self?.log.append("    " + line) } },
+                        preflight: { images in
+                            guard let self else { return [] }
+                            return await self.preflight(images, url.lastPathComponent)
+                        },
                         review: { context in
                             guard let self else { return .keep }
                             return await self.review(context)
@@ -76,6 +89,16 @@ enum Modal: Identifiable {
                 }
             }
             await self?.done()
+        }
+    }
+
+    /// Suspends the pipeline until the carousel says which pages to bin (nil = cancel).
+    func preflight(_ images: [CGImage], _ title: String) async -> Set<Int>? {
+        await withCheckedContinuation { continuation in
+            modal = .carousel(CarouselRequest(pages: images, title: title) { [weak self] discarded in
+                self?.modal = nil
+                continuation.resume(returning: discarded)
+            })
         }
     }
 
@@ -153,6 +176,9 @@ struct ContentView: View {
             switch modal {
             case .direction:
                 DirectionSheet(model: model)
+            case .carousel(let request):
+                PageCarousel(pages: request.pages, title: request.title, onDone: request.reply)
+                    .interactiveDismissDisabled()
             case .review(let request):
                 PageEditor(pages: request.context.pages, index: request.context.index,
                            suggestedCuts: request.context.suggestedCuts,

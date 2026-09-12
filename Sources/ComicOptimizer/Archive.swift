@@ -4,13 +4,14 @@ import CArchive
 private let AE_IFREG: mode_t = 0o100000
 
 enum ArchiveError: LocalizedError {
-    case open(String), write(String), noImages
+    case open(String), write(String), noImages, cancelled
 
     var errorDescription: String? {
         switch self {
         case .open(let m):  return "Impossibile aprire l'archivio: \(m)"
         case .write(let m): return "Impossibile scrivere il .cbz: \(m)"
         case .noImages:     return "Nessuna immagine trovata."
+        case .cancelled:    return "Annullato."
         }
     }
 }

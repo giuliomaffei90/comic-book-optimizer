@@ -19,13 +19,15 @@ enum SelfCheck {
     }
 
     private static func run() async throws {
-        let pages = (0..<4).map { noise(seed: UInt64($0) + 1, w: 600, h: 900) }
-        let redundant = join(pages[1], pages[2])          // duplicates pages 2+3 → must be dropped
+        let plain = (0..<8).map { noise(seed: UInt64($0) + 1, w: 600, h: 900) }
+        let redundant = join(plain[1], plain[2])          // duplicates the two pages before it
         let unique = join(noise(seed: 90, w: 600, h: 900), noise(seed: 91, w: 600, h: 900))
-        let foldout = join(unique, noise(seed: 92, w: 600, h: 900))   // 3× wide → needs review
+        let foldout = join(unique, noise(seed: 92, w: 600, h: 900))   // 3× wide
 
-        let source = [pages[0], pages[1], pages[2], redundant, pages[3], unique, foldout]
-        let entries = source.enumerated().map { Entry(name: String(format: "p%02d.png", $0.offset), data: png($0.element)) }
+        let source = plain[0...2] + [redundant] + plain[3...7] + [unique, foldout]
+        let entries = source.enumerated().map {
+            Entry(name: String(format: "p%02d.png", $0.offset), data: png($0.element))
+        }
 
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("selftest-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -33,32 +35,44 @@ enum SelfCheck {
         let input = dir.appendingPathComponent("book.cbz")
         try writeCBZ(entries, to: input)
 
-        // The spread and the foldout reach the reviewer; the plain pages must not.
+        // The carousel sees the untouched book and bins its first page; afterwards only the
+        // spread and the foldout reach the reviewer — never a plain page, never the
+        // redundant spread, which the dedup drops on its own.
+        var seenByCarousel = 0
         var reviewed: [Int] = []
-        let output = try await Pipeline.run(input: input, manga: true, useImageOptim: false, log: { _ in }) { ctx in
-            reviewed.append(ctx.index)
-            let image = ctx.pages[ctx.index]
-            // Honour the suggested cut when there is one, otherwise slice the foldout in thirds.
-            let fractions = ctx.suggestedCuts.isEmpty ? [1.0 / 3, 2.0 / 3] : ctx.suggestedCuts
-            let xs = ([0] + fractions + [1]).map { Int($0 * CGFloat(image.width)) }
-            return .replace((0..<(xs.count - 1)).compactMap {
-                image.cropping(to: CGRect(x: xs[$0], y: 0, width: xs[$0 + 1] - xs[$0], height: image.height))
-            })
-        }
-        try expect(reviewed == [5, 6], "il reviewer doveva vedere le pagine 5 e 6, ha visto \(reviewed)")
+        let output = try await Pipeline.run(
+            input: input, manga: true, useImageOptim: false, log: { _ in },
+            preflight: { images in
+                seenByCarousel = images.count
+                return [0]
+            }) { ctx in
+                reviewed.append(ctx.index)
+                let image = ctx.pages[ctx.index]
+                // Honour the suggested cut when there is one, else slice the foldout in thirds.
+                let fractions = ctx.suggestedCuts.isEmpty ? [1.0 / 3, 2.0 / 3] : ctx.suggestedCuts
+                let xs = ([0] + fractions + [1]).map { Int($0 * CGFloat(image.width)) }
+                return .replace((0..<(xs.count - 1)).compactMap {
+                    image.cropping(to: CGRect(x: xs[$0], y: 0,
+                                              width: xs[$0 + 1] - xs[$0], height: image.height))
+                })
+            }
+
+        try expect(seenByCarousel == 11, "il carosello doveva vedere 11 pagine, non \(seenByCarousel)")
+        try expect(reviewed == [8, 9], "il reviewer doveva vedere le pagine 8 e 9, ha visto \(reviewed)")
 
         let result = try readArchive(output).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-        try expect(result.map(\.name) == ["001.png", "002.png", "003.png", "004.png",
-                                          "005.jpg", "006.jpg", "007.jpg", "008.jpg", "009.jpg"],
+        try expect(result.map(\.name) == ["001.png", "002.png", "003.png", "004.png", "005.png",
+                                          "006.png", "007.png", "008.jpg", "009.jpg", "010.jpg",
+                                          "011.jpg", "012.jpg"],
                    "nomi inattesi: \(result.map(\.name))")
 
         // Manga order: the right half of the spread comes first...
-        guard let firstHalf = decodeImage(result[4].data), let right = half(unique, left: false)
+        guard let firstHalf = decodeImage(result[7].data), let right = half(unique, left: false)
         else { throw Failure("decodifica fallita") }
         try expect(hamming(dhash(firstHalf), dhash(right)) <= 12, "ordine manga errato sulla tavola doppia")
 
         // ...and so does the rightmost third of the foldout.
-        guard let firstThird = decodeImage(result[6].data),
+        guard let firstThird = decodeImage(result[9].data),
               let rightThird = foldout.cropping(to: CGRect(x: 2 * foldout.width / 3, y: 0,
                                                            width: foldout.width / 3, height: foldout.height))
         else { throw Failure("decodifica fallita") }

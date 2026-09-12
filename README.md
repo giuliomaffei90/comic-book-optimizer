@@ -5,7 +5,10 @@ App macOS nativa (SwiftUI) per preparare fumetti alla lettura su iPad con Panels
 Trascini un `.cbr`, `.cbz`, `.zip`, `.rar`, `.7z` o una cartella di immagini; l'app:
 
 1. estrae le pagine e le ordina naturalmente;
-2. classifica ogni pagina rispetto alla mediana del volume stesso:
+2. te le mostra tutte in un carosello con la striscia delle miniature, così puoi segnare
+   quelle da buttare (pubblicità, tavole di calibrazione, copertine doppie) prima che
+   il resto della pipeline le tocchi;
+3. classifica ogni pagina rispetto alla mediana del volume stesso:
    - **pagina normale** (~1×): passa;
    - **tavola doppia** (~2×): se le due metà sono già presenti come pagine singole adiacenti
      (confronto con difference hash) la scarta da sola, altrimenti te la mostra con la linea
@@ -17,9 +20,9 @@ Trascini un `.cbr`, `.cbz`, `.zip`, `.rar`, `.7z` o una cartella di immagini; l'
    ritagliarla, spostare o aggiungere linee di taglio verticali, sfogliare le pagine vicine
    con le frecce e zoomare fino a 8× per lavorare al pixel. Con la lettura manga i pezzi
    vengono riordinati destra → sinistra;
-3. riduce le pagine che superano 2048×2732 (risoluzione nativa dell'iPad Pro 12.9");
-4. ricodifica in JPEG qualità 81% e, se vuoi, fa un passaggio con **ImageOptim** (usa le sue preferenze);
-5. riscrive tutto in un `.cbz` accanto all'originale e chiede se conservare i file di partenza.
+4. riduce le pagine che superano 2048×2732 (risoluzione nativa dell'iPad Pro 12.9");
+5. ricodifica in JPEG qualità 81% e, se vuoi, fa un passaggio con **ImageOptim** (usa le sue preferenze);
+6. riscrive tutto in un `.cbz` accanto all'originale e chiede se conservare i file di partenza.
 
 ## Dipendenze
 
