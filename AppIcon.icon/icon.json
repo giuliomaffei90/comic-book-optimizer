@@ -8,28 +8,90 @@
     {
       "appearance" : "dark",
       "value" : {
-        "automatic-gradient" : "display-p3:0.07732,0.13838,0.38166,1.00000"
+        "automatic-gradient" : "display-p3:0.00000,0.20772,0.37838,1.00000"
       }
     }
   ],
   "groups" : [
     {
-      "layers" : [
+      "blend-mode-specializations" : [
         {
-          "fill" : "automatic",
-          "glass" : true,
-          "image-name" : "pow.png",
-          "name" : "POW"
+          "appearance" : "dark",
+          "value" : "normal"
         }
       ],
+      "blur-material" : null,
+      "hidden" : false,
+      "layers" : [
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.96783,0.12117,0.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : true,
+          "image-name" : "pow_0000_Green text on white background.png",
+          "name" : "pow_0000_Green text on white background"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "display-p3:0.68816,0.00000,0.00000,1.00000"
+              }
+            }
+          ],
+          "glass" : false,
+          "image-name" : "pow_0001_Yellow abstract shapes.png",
+          "name" : "pow_0001_Yellow abstract shapes"
+        },
+        {
+          "fill-specializations" : [
+            {
+              "appearance" : "dark",
+              "value" : {
+                "automatic-gradient" : "display-p3:0.05740,0.05803,0.05678,1.00000",
+                "orientation" : {
+                  "start" : {
+                    "x" : 0.5,
+                    "y" : 1
+                  },
+                  "stop" : {
+                    "x" : 0.49999999999999983,
+                    "y" : 0.05723046326287255
+                  }
+                }
+              }
+            }
+          ],
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "pow_0002_Black and white graphic design.png",
+          "name" : "pow_0002_Black and white graphic design"
+        },
+        {
+          "image-name" : "pow_0003_Yellow geometric shape.png",
+          "name" : "pow_0003_Yellow geometric shape"
+        }
+      ],
+      "position" : {
+        "scale" : 1.7,
+        "translation-in-points" : [
+          0,
+          0
+        ]
+      },
       "shadow" : {
         "kind" : "layer-color",
-        "opacity" : 0.6
+        "opacity" : 1
       },
-      "specular" : true,
       "translucency" : {
-        "enabled" : false,
-        "value" : 0.5
+        "enabled" : true,
+        "value" : 0.2
       }
     }
   ],
