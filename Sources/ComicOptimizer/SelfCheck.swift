@@ -8,16 +8,23 @@ import UniformTypeIdentifiers
 enum SelfCheck {
     static func runIfRequested() {
         guard CommandLine.arguments.contains("--selftest") else { return }
-        do { try run(); print("selftest OK") } catch { print("selftest FAILED: \(error)"); exit(1) }
+        let finished = DispatchSemaphore(value: 0)
+        Task.detached {
+            do { try await run(); print("selftest OK") }
+            catch { print("selftest FAILED: \(error)"); exit(1) }
+            finished.signal()
+        }
+        finished.wait()
         exit(0)
     }
 
-    private static func run() throws {
+    private static func run() async throws {
         let pages = (0..<4).map { noise(seed: UInt64($0) + 1, w: 600, h: 900) }
         let redundant = join(pages[1], pages[2])          // duplicates pages 2+3 → must be dropped
         let unique = join(noise(seed: 90, w: 600, h: 900), noise(seed: 91, w: 600, h: 900))
+        let foldout = join(unique, noise(seed: 92, w: 600, h: 900))   // 3× wide → needs review
 
-        let source = [pages[0], pages[1], pages[2], redundant, pages[3], unique]
+        let source = [pages[0], pages[1], pages[2], redundant, pages[3], unique, foldout]
         let entries = source.enumerated().map { Entry(name: String(format: "p%02d.png", $0.offset), data: png($0.element)) }
 
         let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("selftest-\(UUID().uuidString)")
@@ -26,17 +33,34 @@ enum SelfCheck {
         let input = dir.appendingPathComponent("book.cbz")
         try writeCBZ(entries, to: input)
 
-        let output = try Pipeline.run(input: input, manga: true, useImageOptim: false) { _ in }
-        let result = try readArchive(output).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // The foldout is the only page handed to the reviewer; slice it into thirds.
+        var reviewed = 0
+        let output = try await Pipeline.run(input: input, manga: true, useImageOptim: false, log: { _ in }) { image, _ in
+            reviewed += 1
+            let third = image.width / 3
+            let parts = (0..<3).compactMap {
+                image.cropping(to: CGRect(x: $0 * third, y: 0, width: third, height: image.height))
+            }
+            return .replace(parts)
+        }
+        try expect(reviewed == 1, "il reviewer doveva essere chiamato una volta, non \(reviewed)")
 
-        try expect(result.count == 6, "atteso 6 pagine, trovate \(result.count)")
-        try expect(result.map(\.name) == ["001.png", "002.png", "003.png", "004.png", "005.jpg", "006.jpg"],
+        let result = try readArchive(output).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        try expect(result.map(\.name) == ["001.png", "002.png", "003.png", "004.png",
+                                          "005.jpg", "006.jpg", "007.jpg", "008.jpg", "009.jpg"],
                    "nomi inattesi: \(result.map(\.name))")
 
-        // Manga order: the right half of the spread must come first.
+        // Manga order: the right half of the spread comes first...
         guard let firstHalf = decodeImage(result[4].data), let right = half(unique, left: false)
         else { throw Failure("decodifica fallita") }
-        try expect(hamming(dhash(firstHalf), dhash(right)) <= 12, "ordine manga errato")
+        try expect(hamming(dhash(firstHalf), dhash(right)) <= 12, "ordine manga errato sulla tavola doppia")
+
+        // ...and so does the rightmost third of the foldout.
+        guard let firstThird = decodeImage(result[6].data),
+              let rightThird = foldout.cropping(to: CGRect(x: 2 * foldout.width / 3, y: 0,
+                                                           width: foldout.width / 3, height: foldout.height))
+        else { throw Failure("decodifica fallita") }
+        try expect(hamming(dhash(firstThird), dhash(rightThird)) <= 12, "ordine manga errato sul foldout")
     }
 
     // MARK: - helpers

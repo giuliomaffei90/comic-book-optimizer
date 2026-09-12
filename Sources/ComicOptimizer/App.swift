@@ -12,13 +12,34 @@ struct ComicOptimizerApp: App {
     }
 }
 
+struct ReviewRequest: Identifiable {
+    let id = UUID()
+    let image: CGImage
+    let label: String
+    let manga: Bool
+    let reply: (PageDecision) -> Void
+}
+
+/// One sheet at a time — the direction prompt and the page review never overlap.
+enum Modal: Identifiable {
+    case direction
+    case review(ReviewRequest)
+
+    var id: String {
+        switch self {
+        case .direction: return "direction"
+        case .review(let request): return request.id.uuidString
+        }
+    }
+}
+
 @MainActor final class Model: ObservableObject {
     @Published var log: [String] = []
     @Published var busy = false
-    @Published var askDirection = false
     @Published var askKeep = false
     @Published var manga = false
     @Published var useImageOptim = ImageOptim.available
+    @Published var modal: Modal?
 
     var pending: [URL] = []
     var processed: [(input: URL, output: URL)] = []
@@ -30,11 +51,11 @@ struct ComicOptimizerApp: App {
             (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
                 || Self.archives.contains(url.pathExtension.lowercased())
         }
-        askDirection = !pending.isEmpty
+        if !pending.isEmpty { modal = .direction }
     }
 
     func start() {
-        askDirection = false
+        modal = nil
         busy = true
         log = []
         processed = []
@@ -43,15 +64,29 @@ struct ComicOptimizerApp: App {
             for url in items {
                 await self?.append("▸ \(url.lastPathComponent)")
                 do {
-                    let output = try Pipeline.run(input: url, manga: manga, useImageOptim: optim) { line in
-                        Task { @MainActor in self?.log.append("    " + line) }
-                    }
+                    let output = try await Pipeline.run(
+                        input: url, manga: manga, useImageOptim: optim,
+                        log: { line in Task { @MainActor in self?.log.append("    " + line) } },
+                        review: { image, label in
+                            guard let self else { return .keep }
+                            return await self.review(image, label)
+                        })
                     await self?.finished(url, output)
                 } catch {
                     await self?.append("    ⚠︎ \(error.localizedDescription)")
                 }
             }
             await self?.done()
+        }
+    }
+
+    /// Suspends the pipeline until the editor reports back what to do with the page.
+    func review(_ image: CGImage, _ label: String) async -> PageDecision {
+        await withCheckedContinuation { continuation in
+            modal = .review(ReviewRequest(image: image, label: label, manga: manga) { [weak self] decision in
+                self?.modal = nil
+                continuation.resume(returning: decision)
+            })
         }
     }
 
@@ -115,7 +150,16 @@ struct ContentView: View {
             .frame(maxHeight: .infinity)
         }
         .padding()
-        .sheet(isPresented: $model.askDirection) { DirectionSheet(model: model) }
+        .sheet(item: $model.modal) { modal in
+            switch modal {
+            case .direction:
+                DirectionSheet(model: model)
+            case .review(let request):
+                PageEditor(image: request.image, label: request.label,
+                           manga: request.manga, onDecision: request.reply)
+                    .interactiveDismissDisabled()
+            }
+        }
         .alert("Conservare i file originali?", isPresented: $model.askKeep) {
             Button("Conserva") { model.processed = [] }
             Button("Sposta nel Cestino", role: .destructive) { model.trashOriginals() }
@@ -144,7 +188,7 @@ struct DirectionSheet: View {
 
             HStack {
                 Spacer()
-                Button("Annulla") { model.askDirection = false }
+                Button("Annulla") { model.modal = nil }
                 Button("Ottimizza") { model.start() }.keyboardShortcut(.defaultAction)
             }
         }

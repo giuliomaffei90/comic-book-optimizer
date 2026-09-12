@@ -15,12 +15,21 @@ enum ImageOptim {
     }
 }
 
+/// What to do with a page the pipeline could not classify on its own.
+enum PageDecision {
+    case keep
+    case drop
+    case replace([CGImage])   // pieces in left-to-right order
+}
+
 private struct Page {
+    enum Kind { case normal, double, odd }
+
     var image: CGImage
     var data: Data
     var ext: String
     var hash: UInt64
-    var isDouble = false
+    var kind: Kind = .normal
     var drop = false
 }
 
@@ -28,9 +37,14 @@ enum Pipeline {
     static let maxW = 2048, maxH = 2732      // iPad Pro 12.9" native resolution
     static let jpegQuality: CGFloat = 0.81   // same as the ImageOptim JPEG slider
     static let hashThreshold = 12            // out of 64 bits
-    static let doubleRatioFactor: CGFloat = 1.5
+    static let normalTolerance: CGFloat = 0.25
+    static let doubleTolerance: CGFloat = 0.30
 
-    static func run(input: URL, manga: Bool, useImageOptim: Bool, log: (String) -> Void) throws -> URL {
+    static func run(input: URL,
+                    manga: Bool,
+                    useImageOptim: Bool,
+                    log: (String) -> Void,
+                    review: (CGImage, String) async -> PageDecision) async throws -> URL {
         var entries = try load(input)
         entries.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         guard !entries.isEmpty else { throw ArchiveError.noImages }
@@ -43,40 +57,51 @@ enum Pipeline {
         }
         guard !pages.isEmpty else { throw ArchiveError.noImages }
 
-        // A spread is a page far wider (relative to its height) than the book's norm.
+        // Classify against the book's own norm: ~1× is a page, ~2× is a spread,
+        // anything else (foldouts, crooked scans, banners) needs a human.
         let ratios = pages.map { CGFloat($0.image.width) / CGFloat($0.image.height) }.sorted()
         let median = ratios[ratios.count / 2]
-        let threshold = max(0.9, median * doubleRatioFactor)
-        for i in pages.indices where CGFloat(pages[i].image.width) / CGFloat(pages[i].image.height) > threshold {
-            pages[i].isDouble = true
+        for i in pages.indices {
+            let k = CGFloat(pages[i].image.width) / CGFloat(pages[i].image.height) / median
+            pages[i].kind = abs(k - 1) <= normalTolerance ? .normal
+                          : abs(k - 2) <= doubleTolerance ? .double
+                          : .odd
         }
 
         // Some rips ship the spread *and* its two halves — then the spread is redundant.
         var split = 0, dropped = 0
-        for i in pages.indices where pages[i].isDouble {
+        for i in pages.indices where pages[i].kind == .double {
             if alreadySplit(pages, i) { pages[i].drop = true; dropped += 1 } else { split += 1 }
         }
         if split > 0 { log("\(split) tavole doppie da dividere") }
         if dropped > 0 { log("\(dropped) tavole doppie ridondanti rimosse") }
+        let odd = pages.filter { $0.kind == .odd }.count
+        if odd > 0 { log("\(odd) immagini fuori formato: attendo la tua scelta") }
 
-        // Build the final page list.
         var out: [Entry] = []
-        for page in pages where !page.drop {
-            if page.isDouble {
-                let first = half(page.image, left: !manga)   // manga reads right-to-left
-                let second = half(page.image, left: manga)
-                for img in [first, second].compactMap({ $0 }) {
-                    guard let data = encodeJPEG(fit(img, maxW: maxW, maxH: maxH), quality: jpegQuality)
-                    else { continue }
-                    out.append(Entry(name: name(out.count + 1, "jpg"), data: data))
+        func emit(_ image: CGImage) {
+            guard let data = encodeJPEG(fit(image, maxW: maxW, maxH: maxH), quality: jpegQuality) else { return }
+            out.append(Entry(name: name(out.count + 1, "jpg"), data: data))
+        }
+
+        for (i, page) in pages.enumerated() where !page.drop {
+            switch page.kind {
+            case .double:
+                [half(page.image, left: !manga), half(page.image, left: manga)]
+                    .compactMap { $0 }.forEach(emit)
+
+            case .odd:
+                switch await review(page.image, "Immagine \(i + 1) di \(pages.count)") {
+                case .drop:
+                    continue
+                case .keep:
+                    passThrough(page, into: &out)
+                case .replace(let pieces):
+                    (manga ? pieces.reversed() : pieces).forEach(emit)
                 }
-            } else {
-                let scaled = fit(page.image, maxW: maxW, maxH: maxH)
-                if scaled.width != page.image.width, let data = encodeJPEG(scaled, quality: jpegQuality) {
-                    out.append(Entry(name: name(out.count + 1, "jpg"), data: data))
-                } else {
-                    out.append(Entry(name: name(out.count + 1, page.ext), data: page.data))
-                }
+
+            case .normal:
+                passThrough(page, into: &out)
             }
         }
         log("\(out.count) pagine finali")
@@ -104,6 +129,17 @@ enum Pipeline {
 
     // MARK: -
 
+    /// Keeps the original bytes unless the page actually had to be resized —
+    /// re-encoding an untouched JPEG would only add a generation of loss.
+    private static func passThrough(_ page: Page, into out: inout [Entry]) {
+        let scaled = fit(page.image, maxW: maxW, maxH: maxH)
+        if scaled.width != page.image.width, let data = encodeJPEG(scaled, quality: jpegQuality) {
+            out.append(Entry(name: name(out.count + 1, "jpg"), data: data))
+        } else {
+            out.append(Entry(name: name(out.count + 1, page.ext), data: page.data))
+        }
+    }
+
     private static func name(_ n: Int, _ ext: String) -> String {
         String(format: "%03d.%@", n, ext.isEmpty ? "jpg" : ext)
     }
@@ -125,8 +161,8 @@ enum Pipeline {
         let lh = dhash(l), rh = dhash(r)
         for j in [i - 2, i + 1] {
             guard j >= 0, j + 1 < pages.count, j != i, j + 1 != i else { continue }
+            guard pages[j].kind == .normal, pages[j + 1].kind == .normal else { continue }
             let a = pages[j].hash, b = pages[j + 1].hash
-            guard !pages[j].isDouble, !pages[j + 1].isDouble else { continue }
             let forward = hamming(a, lh) <= hashThreshold && hamming(b, rh) <= hashThreshold
             let reverse = hamming(a, rh) <= hashThreshold && hamming(b, lh) <= hashThreshold
             if forward || reverse { return true }
