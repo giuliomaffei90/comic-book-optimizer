@@ -1,8 +1,14 @@
 #!/bin/sh
 # Builds "Comic Book Optimizer.app" — SwiftUI needs a real bundle to behave like an app.
 set -e
-swift build -c release
 APP="Comic Book Optimizer.app"
+
+echo "==> Chiudo le istanze in esecuzione..."
+osascript -e 'tell application "Comic Book Optimizer" to quit' >/dev/null 2>&1 || true
+pkill -x ComicOptimizer >/dev/null 2>&1 || true
+
+echo "==> Compilo in Release..."
+swift build -c release
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/ComicOptimizer "$APP/Contents/MacOS/"
@@ -32,4 +38,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 codesign --force --deep --sign - "$APP"
-echo "→ $APP"
+
+echo "==> Avvio $APP..."
+open "$APP"
+echo "Fatto."
