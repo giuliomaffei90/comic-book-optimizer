@@ -15,7 +15,7 @@
 
 ## Features
 
-- **Drop and go**: drag one or more `.cbr`, `.cbz`, `.cb7`, `.zip`, `.rar`, `.7z` files or folders of images onto the window. Items are processed one after the other and the log fills in below the drop zone.
+- **Drop and go**: drag one or more `.cbr`, `.cbz`, `.cb7`, `.zip`, `.rar`, `.7z`, `.pdf` files or folders of images onto the window. Items are processed one after the other and the log fills in below the drop zone.
 - **Reading direction**: before starting, pick "Occidentale (sinistra → destra)" or "Manga (destra → sinistra)". In manga mode the pieces of a cut page are written right to left.
 - **Preview carousel**: every page of the book is shown with a filmstrip of thumbnails in their real aspect ratio, so spreads and oddities stand out. Flip with the arrow keys, click a thumbnail to jump, mark pages to throw away with "Elimina questa pagina" (adverts, scan targets, duplicate covers), then press Return to continue.
 - **Automatic classification**: each page is compared with the median aspect ratio of the book itself. About 1× is a normal page, about 2× is a double-page spread, anything else (three-panel foldouts, crooked scans, banners) is out of format.
@@ -59,10 +59,10 @@ open Package.swift
 
 ## How it works
 
-1. The drop zone in [App.swift](Sources/ComicOptimizer/App.swift) keeps the dropped URLs that are folders or have an archive extension, then shows the reading-direction sheet. "Ottimizza" starts a detached task that runs the pipeline on each item in turn.
-2. [Pipeline.swift](Sources/ComicOptimizer/Pipeline.swift) loads the pages: an archive is read entirely into memory by `readArchive` in [Archive.swift](Sources/ComicOptimizer/Archive.swift), a folder is enumerated recursively. Only files with an image extension (`jpg`, `jpeg`, `png`, `webp`, `gif`, `bmp`, `tif`, `tiff`, `heic`, `avif`) count, dotfiles and `__MACOSX` entries are skipped, and the names are sorted with Finder-style natural ordering.
+1. The drop zone in [App.swift](Sources/ComicOptimizer/App.swift) keeps the dropped URLs that are folders or have an archive or `pdf` extension, then shows the reading-direction sheet. "Ottimizza" starts a detached task that runs the pipeline on each item in turn.
+2. [Pipeline.swift](Sources/ComicOptimizer/Pipeline.swift) loads the pages: an archive is read entirely into memory by `readArchive` in [Archive.swift](Sources/ComicOptimizer/Archive.swift), a PDF is rendered by `readPDF` page by page with CoreGraphics at 2732 pixels tall (so spreads keep their full width) and encoded as JPEG at 81%, a folder is enumerated recursively. Only files with an image extension (`jpg`, `jpeg`, `png`, `webp`, `gif`, `bmp`, `tif`, `tiff`, `heic`, `avif`) count, dotfiles and `__MACOSX` entries are skipped, and the names are sorted with Finder-style natural ordering.
 3. Every page is decoded and hashed, then the pipeline suspends until the carousel in [PageCarousel.swift](Sources/ComicOptimizer/PageCarousel.swift) returns the set of pages to discard. "Annulla" aborts the whole item.
-4. The remaining pages are classified against the median aspect ratio: within 25% of 1× is normal, within 30% of 2× is a spread, the rest is out of format. For each spread, the hashes of its two halves are compared with the two pages before and the two pages after it; a Hamming distance of 12 bits or less on both halves marks the spread redundant.
+4. The remaining pages are classified against the median aspect ratio, halved when it is landscape (a book made mostly of spreads, as many PDFs are): within 25% of 1× is normal, within 30% of 2× is a spread, the rest is out of format. For each spread, the hashes of its two halves are compared with the two pages before and the two pages after it; a Hamming distance of 12 bits or less on both halves marks the spread redundant.
 5. Normal pages pass through. For every other page the pipeline suspends again on the editor in [PageEditor.swift](Sources/ComicOptimizer/PageEditor.swift), which hands back a decision: keep, drop, or replace with the cropped pieces between the cuts. Pieces narrower or shorter than 8 pixels are discarded, and in manga mode the order is reversed.
 6. Each output page is scaled with `fit` in [ImageOps.swift](Sources/ComicOptimizer/ImageOps.swift) and encoded as JPEG only when it was resized or cut, then staged in a temporary folder. If requested, ImageOptim is launched on those files and the pipeline waits for it to exit.
 7. `writeCBZ` writes a stored zip to the output path chosen by `outputURL`, the log reports the final size, and once every item is done the keep-or-trash alert appears.
@@ -70,7 +70,9 @@ open Package.swift
 ## Known limitations
 
 - The interface is in Italian only. There is no localisation table, the strings live in the source.
-- The drop zone text mentions only `.cbr`, `.cbz`, `.zip` and folders, but `.cb7`, `.rar` and `.7z` are accepted too.
+- The drop zone text mentions only `.cbr`, `.cbz`, `.zip`, `.pdf` and folders, but `.cb7`, `.rar` and `.7z` are accepted too.
+- PDF pages are rasterised, not extracted: the original embedded images are never passed through untouched, and every page goes through one JPEG encode.
+- A book whose pages are genuinely landscape is read as a book of spreads, so every page stops on the editor with a cut in the middle.
 - Cuts are vertical only, so a page stacked top to bottom cannot be split.
 - The whole archive and every decoded page are held in memory for the duration of the job. Very large books use a lot of RAM.
 - Page order comes from file names only. Archives whose pages are numbered inconsistently will be ordered as Finder would sort them.

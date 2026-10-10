@@ -52,7 +52,7 @@ enum Modal: Identifiable {
     var pending: [URL] = []
     var processed: [(input: URL, output: URL)] = []
 
-    private static let archives: Set<String> = ["cbr", "cbz", "cb7", "zip", "rar", "7z"]
+    private static let archives: Set<String> = ["cbr", "cbz", "cb7", "zip", "rar", "7z", "pdf"]
 
     func dropped(_ urls: [URL]) {
         pending = urls.filter { url in
@@ -147,7 +147,7 @@ struct ContentView: View {
                     .foregroundStyle(targeted ? Color.accentColor : Color.secondary.opacity(0.4))
                 VStack(spacing: 8) {
                     Image(systemName: "books.vertical").font(.system(size: 32))
-                    Text("Trascina qui un .cbr, .cbz, .zip\no una cartella di immagini")
+                    Text("Trascina qui un .cbr, .cbz, .zip, .pdf\no una cartella di immagini")
                         .multilineTextAlignment(.center)
                 }
                 .foregroundStyle(.secondary)

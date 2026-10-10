@@ -1,5 +1,6 @@
 import Foundation
 import CArchive
+import CoreGraphics
 
 private let AE_IFREG: mode_t = 0o100000
 
@@ -73,4 +74,30 @@ func writeCBZ(_ entries: [Entry], to url: URL) throws {
         _ = e.data.withUnsafeBytes { archive_write_data(a, $0.baseAddress, $0.count) }
     }
     guard archive_write_close(a) == 0 else { throw ArchiveError.write(err(a)) }
+}
+
+/// Renders every page of a PDF as a JPEG `height` pixels tall, so spreads keep their width.
+func readPDF(_ url: URL, height: Int, quality: CGFloat) throws -> [Entry] {
+    guard let doc = CGPDFDocument(url as CFURL) else { throw ArchiveError.open("PDF non leggibile") }
+    guard doc.numberOfPages > 0 else { return [] }
+    return (1...doc.numberOfPages).compactMap { n in
+        guard let page = doc.page(at: n) else { return nil }
+        let box = page.getBoxRect(.cropBox)
+        let size = page.rotationAngle % 180 == 0 ? box.size : CGSize(width: box.height, height: box.width)
+        guard size.height > 0 else { return nil }
+        let scale = CGFloat(height) / size.height
+        guard let ctx = CGContext(data: nil, width: Int((size.width * scale).rounded()), height: height,
+                                  bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)
+        else { return nil }
+        ctx.setFillColor(gray: 1, alpha: 1)    // pages without a background would turn black
+        ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
+        ctx.interpolationQuality = .high
+        ctx.scaleBy(x: scale, y: scale)
+        ctx.concatenate(page.getDrawingTransform(.cropBox, rect: CGRect(origin: .zero, size: size),
+                                                 rotate: 0, preserveAspectRatio: true))
+        ctx.drawPDFPage(page)
+        guard let image = ctx.makeImage(), let data = encodeJPEG(image, quality: quality) else { return nil }
+        return Entry(name: String(format: "%04d.jpg", n), data: data)
+    }
 }

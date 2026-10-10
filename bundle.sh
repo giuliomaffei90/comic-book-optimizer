@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds "Comic Book Optimizer.app" — SwiftUI needs a real bundle to behave like an app.
 set -e
-APP=".build/Comic Book Optimizer.app"
+APP="$PWD/.build/Comic Book Optimizer.app"   # absolute: actool runs in a daemon with its own cwd
 DEST="$HOME/Downloads/Comic Book Optimizer.app"
 
 echo "==> Chiudo le istanze in esecuzione..."
@@ -20,7 +20,7 @@ actool --output-format human-readable-text --notices --warnings \
   --app-icon AppIcon --platform macosx --target-device mac \
   --minimum-deployment-target 26.0 \
   --output-partial-info-plist "$APP/Contents/Resources/icon.plist" \
-  --compile "$APP/Contents/Resources" AppIcon.icon > /dev/null
+  --compile "$APP/Contents/Resources" "$PWD/AppIcon.icon" > /dev/null
 rm "$APP/Contents/Resources/icon.plist"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

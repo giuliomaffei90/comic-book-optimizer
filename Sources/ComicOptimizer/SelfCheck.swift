@@ -57,7 +57,33 @@ enum SelfCheck {
                 })
             }
 
-        try expect(seenByCarousel == 11, "il carosello doveva vedere 11 pagine, non \(seenByCarousel)")
+        // A PDF becomes one JPEG per page at the requested height; a /Rotate 90 page comes out landscape.
+        let pdfURL = dir.appendingPathComponent("book.pdf")
+        var media = CGRect(x: 0, y: 0, width: 400, height: 600)
+        guard let pdf = CGContext(pdfURL as CFURL, mediaBox: &media, nil) else { throw Failure("PDF non creato") }
+        pdf.beginPDFPage(nil); pdf.draw(plain[0], in: media); pdf.endPDFPage()
+        pdf.beginPDFPage([kCGPDFContextMediaBox: Data(bytes: &media, count: MemoryLayout<CGRect>.size),
+                          "Rotate": 90] as CFDictionary)
+        pdf.draw(plain[1], in: media); pdf.endPDFPage()
+        pdf.closePDF()
+        let pdfPages = try readPDF(pdfURL, height: 900, quality: 0.8).compactMap { decodeImage($0.data) }
+        try expect(pdfPages.map { [$0.width, $0.height] } == [[600, 900], [1350, 900]],
+                   "pagine PDF inattese: \(pdfPages.map { "\($0.width)×\($0.height)" })")
+
+        // A book made almost entirely of spreads (e.g. a PDF of facing pages) must still
+        // send every spread to the reviewer, not take the spread as its norm.
+        let spreadBook = dir.appendingPathComponent("spreads.cbz")
+        try writeCBZ([plain[0], join(plain[1], plain[2]), join(plain[3], plain[4]), join(plain[5], plain[6])]
+            .enumerated().map { Entry(name: "s\($0.offset).png", data: png($0.element)) }, to: spreadBook)
+        var spreadsReviewed: [Int] = []
+        _ = try await Pipeline.run(input: spreadBook, manga: false, useImageOptim: false, log: { _ in },
+                                   preflight: { _ in [] }) { ctx in
+            spreadsReviewed.append(ctx.index)
+            return .keep
+        }
+        try expect(spreadsReviewed == [1, 2, 3], "nel libro di sole doppie il reviewer ha visto \(spreadsReviewed)")
+
+        try expect(seenByCarousel == 11,"il carosello doveva vedere 11 pagine, non \(seenByCarousel)")
         try expect(reviewed == [8, 9], "il reviewer doveva vedere le pagine 8 e 9, ha visto \(reviewed)")
 
         let result = try readArchive(output).sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
