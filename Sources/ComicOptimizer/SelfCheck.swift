@@ -70,10 +70,9 @@ enum SelfCheck {
         try expect(pdfPages.map { [$0.width, $0.height] } == [[600, 900], [1350, 900]],
                    "pagine PDF inattese: \(pdfPages.map { "\($0.width)×\($0.height)" })")
 
-        // A book made almost entirely of spreads (e.g. a PDF of facing pages) must still
-        // send every spread to the reviewer, not take the spread as its norm.
+        // A book whose pages are all landscape has a landscape norm: nothing to review or cut.
         let spreadBook = dir.appendingPathComponent("spreads.cbz")
-        try writeCBZ([plain[0], join(plain[1], plain[2]), join(plain[3], plain[4]), join(plain[5], plain[6])]
+        try writeCBZ([join(plain[1], plain[2]), join(plain[3], plain[4]), join(plain[5], plain[6])]
             .enumerated().map { Entry(name: "s\($0.offset).png", data: png($0.element)) }, to: spreadBook)
         var spreadsReviewed: [Int] = []
         _ = try await Pipeline.run(input: spreadBook, manga: false, useImageOptim: false, log: { _ in },
@@ -81,7 +80,7 @@ enum SelfCheck {
             spreadsReviewed.append(ctx.index)
             return .keep
         }
-        try expect(spreadsReviewed == [1, 2, 3], "nel libro di sole doppie il reviewer ha visto \(spreadsReviewed)")
+        try expect(spreadsReviewed.isEmpty, "nel libro tutto orizzontale il reviewer ha visto \(spreadsReviewed)")
 
         try expect(seenByCarousel == 11,"il carosello doveva vedere 11 pagine, non \(seenByCarousel)")
         try expect(reviewed == [8, 9], "il reviewer doveva vedere le pagine 8 e 9, ha visto \(reviewed)")

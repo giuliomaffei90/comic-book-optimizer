@@ -78,10 +78,9 @@ enum Pipeline {
         // anything else (foldouts, crooked scans, banners) needs a human.
         let ratios = pages.map { CGFloat($0.image.width) / CGFloat($0.image.height) }.sorted()
         let mid = ratios.count / 2
-        var median = ratios.count % 2 == 1 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2
-        // A comic page is portrait: a landscape norm means a book made mostly of spreads.
-        // ponytail: misreads books with genuinely landscape pages; add a format toggle if one turns up.
-        if median > 1 { median /= 2 }
+        // The norm is whatever most pages are, portrait or landscape: a book in a single
+        // format, even an all-landscape one, has nothing to cut.
+        let median = ratios.count % 2 == 1 ? ratios[mid] : (ratios[mid - 1] + ratios[mid]) / 2
         for i in pages.indices {
             let k = CGFloat(pages[i].image.width) / CGFloat(pages[i].image.height) / median
             pages[i].kind = abs(k - 1) <= normalTolerance ? .normal
