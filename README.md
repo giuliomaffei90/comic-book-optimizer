@@ -38,7 +38,7 @@
 ## Installation
 
 ```bash
-git clone https://gitlab.com/giuliomaffei90/comic-book-optimizer.git
+git clone https://github.com/giuliomaffei90/comic-book-optimizer.git
 cd comic-book-optimizer
 ./bundle.sh
 ```
